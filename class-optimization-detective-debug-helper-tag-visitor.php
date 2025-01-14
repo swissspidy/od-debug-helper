@@ -43,32 +43,90 @@ final class Optimization_Detective_Debug_Helper_Tag_Visitor {
 		foreach ( $context->url_metric_group_collection as $group ) {
 			// This is the LCP element for this group.
 			if ( $group->get_lcp_element() instanceof OD_Element && $xpath === $group->get_lcp_element()->get_xpath() ) {
-				$uuid = wp_generate_uuid4();
+				$anchor_text  = __( 'Optimization Detective', 'od-debug-helper' );
+				$popover_text = __( 'LCP Element', 'od-debug-helper' );
 
-				$processor->set_meta_attribute(
-					'viewport',
-					(string) $group->get_minimum_viewport_width()
-				);
+				$this->add_dot( $processor, $anchor_text, $popover_text );
+			}
 
-				$style = $processor->get_attribute( 'style' );
-				$style = is_string( $style ) ? $style : '';
-				$processor->set_attribute(
-					'style',
-					"anchor-name: --od-debug-element-$uuid;" . $style
-				);
+			// Annotate INP elements.
+			$inp_dots = array();
 
-				$processor->set_meta_attribute(
-					'debug-is-lcp',
-					true
-				);
+			foreach ( $group as $url_metric ) {
+				$inp_data_set = $url_metric->get( 'inpData' );
+				if ( ! is_array( $inp_data_set ) ) {
+					continue;
+				}
 
-				$anchor_text  = __( 'Optimization Detective', 'optimization-detective' );
-				$popover_text = __( 'LCP Element', 'optimization-detective' );
+				foreach ( $inp_data_set as $inp_data ) {
+					if ( $xpath !== $inp_data['xpath'] ) {
+						continue;
+					}
 
-				$processor->append_body_html(
-					<<<HTML
+					if ( isset( $inp_dots[ $inp_data['xpath'] ] ) ) {
+						$inp_dots[ $inp_data['xpath'] ][] = array(
+						  'value'  => $inp_data['value'],
+						  'rating' => $inp_data['rating'],
+						);
+					} else {
+						$inp_dots[ $inp_data['xpath'] ] = array(
+						  array(
+							'value'  => $inp_data['value'],
+							'rating' => $inp_data['rating'],
+						  ),
+						);
+					}
+				}
+
+				if ( array() !== $inp_dots ) {
+					foreach ( $inp_dots as $xpath => $data ) {
+						// TODO: List all ratings, not just the first one.
+						$anchor_text  = __( 'Optimization Detective', 'od-debug-helper' );
+						$popover_text =
+						  sprintf(
+							/* translators: 1: INP value. 2: Rating. */
+							__( 'INP Element: (Value: %1$s) (Rating: %2$s)', 'od-debug-helper' ),
+							$data[0]['value'],
+							$data[0]['rating']
+						  );
+
+						$this->add_dot( $processor, $anchor_text, $popover_text );
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Adds a debug dot for the element
+	 *
+	 * @since 0.1.0
+	 *
+	 * @phpstan-param NormalizedAttributeNames $attribute_name
+	 *
+	 * @param OD_HTML_Tag_Processor $processor      Processor.
+	 */
+	protected function add_dot( OD_HTML_Tag_Processor $processor, $anchor_text, $popover_text ) {
+		$uuid = wp_generate_uuid4();
+
+		$anchor_name = $this->get_anchor_name( $processor );
+
+		if ( ! $anchor_name ) {
+			$anchor_name = "--od-debug-element-$uuid";
+			$style = $processor->get_attribute( 'style' );
+			$style = is_string( $style ) ? $style : '';
+			$processor->set_attribute(
+			  'style',
+			  "anchor-name: $anchor_name;" . $style
+			);
+		}
+
+		$processor->append_body_html(
+		  <<<HTML
 <button
-	class="od-debug-dot od-debug-dot-lcp"
+	class="od-debug-dot inp"
 	type="button"
 	popovertarget="od-debug-popover-$uuid"
 	popovertargetaction="toggle"
@@ -86,86 +144,32 @@ final class Optimization_Detective_Debug_Helper_Tag_Visitor {
 	$popover_text
 </div>
 HTML
-				);
+		);
+	}
+
+	/**
+	 * Get anchor name for element.
+	 *
+	 * @since 0.1.0
+	 *
+	 * @phpstan-param NormalizedAttributeNames $attribute_name
+	 *
+	 * @param OD_HTML_Tag_Processor $processor      Processor.
+	 * @param string                $attribute_name Attribute name.
+	 * @return string|null Normalized attribute value.
+	 */
+	protected function get_anchor_name( OD_HTML_Tag_Processor $processor ) {
+		$style = $processor->get_attribute( 'style' );
+		$style = is_string( $style ) ? $style : '';
+
+		$matches = array();
+
+		if ( preg_match( '/anchor-name:\s?([^;]+)/', $style, $matches ) ) {
+			if ( isset( $matches[1] ) ) {
+				return $matches[1];
 			}
 		}
 
-		// Add JavaScript to annotate all INP elements.
-		if ( $processor->get_tag() === 'BODY' ) {
-			foreach ( $context->url_metric_group_collection as $group ) {
-				$inp_dots = array();
-
-				foreach ( $group as $url_metric ) {
-					$inp_data_set = $url_metric->get( 'inpData' );
-					if ( ! is_array( $inp_data_set ) ) {
-						continue;
-					}
-
-					foreach ( $inp_data_set as $inp_data ) {
-						if ( isset( $inp_dots[ $inp_data['interactionTarget'] ] ) ) {
-							$inp_dots[ $inp_data['interactionTarget'] ][] = array(
-								'value'  => $inp_data['value'],
-								'rating' => $inp_data['rating'],
-							);
-						} else {
-							$inp_dots[ $inp_data['interactionTarget'] ] = array(
-								array(
-									'value'  => $inp_data['value'],
-									'rating' => $inp_data['rating'],
-								),
-							);
-						}
-					}
-				}
-
-				$inp_dots_json = wp_json_encode( $inp_dots );
-
-				// TODO: Maybe only add the $inp_dots_json here and move the rest to an external script.
-				if ( array() !== ( $inp_dots ) ) {
-					$processor->append_body_html(
-						<<<HTML
-	<script>
-		let count = 0;
-		for ( const [ interactionTarget, entries ] of Object.entries( $inp_dots_json ) ) {
-			const el = document.querySelector( interactionTarget );
-			if ( ! el ) {
-				continue;
-			}
-
-			count++;
-
-			let anchorName = el.style.anchorName;
-
-			if ( ! anchorName ) {
-				anchorName = `--od-debug-element-\${count}`;
-				el.style.anchorName = anchorName;
-			}
-
-			const anchor = document.createElement( 'button' );
-			anchor.setAttribute( 'class', 'od-debug-dot od-debug-dot-inp' );
-			anchor.setAttribute( 'popovertarget', `od-debug-popover-\${count}` );
-			anchor.setAttribute( 'popovertargetaction', 'toggle' );
-			anchor.setAttribute( 'style', `anchor-name: --od-debug-dot-\${count}; position-anchor: \${anchorName};` );
-			anchor.setAttribute( 'aria-details', `od-debug-popover-\${count}` );
-			anchor.setAttribute( 'aria-label', 'INP element' );
-
-			const tooltip = document.createElement( 'div' );
-			tooltip.setAttribute( 'id', `od-debug-popover-\${count}` );
-			tooltip.setAttribute( 'popover', '' );
-			tooltip.setAttribute( 'class', 'od-debug-popover' );
-			tooltip.setAttribute( 'style', `position-anchor: --od-debug-dot-\${count};` );
-			tooltip.textContent = `INP Element (Value: \${entries[0].value}) (Rating: \${entries[0].rating}) (Tag name: \${el.tagName})`;
-
-			document.body.append(anchor);
-			document.body.append(tooltip);
-		}
-	</script>
-HTML
-					);
-				}
-			}
-		}
-
-		return false;
+		return null;
 	}
 }

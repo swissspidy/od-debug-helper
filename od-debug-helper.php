@@ -5,7 +5,7 @@
  * Description: Makes Optimization Detective data available on the front end through the admin bar.
  * Requires at least: 6.7
  * Requires PHP: 7.2
- * Requires Plugins: od-debug-helper
+ * Requires Plugins: optimization-detective
  * Version: 0.1.0
  * Author: Pascal Birchler
  * Author URI: https://pascalbirchler.com/
@@ -48,7 +48,7 @@ function od_debug_filter_extension_module_urls( $extension_module_urls ): array 
 	if ( ! is_array( $extension_module_urls ) ) {
 		$extension_module_urls = array();
 	}
-	$extension_module_urls[] = plugins_url( add_query_arg( 'ver', '0.1.0', 'detect.js' ), __FILE__ );
+	$extension_module_urls[] = add_query_arg( 'ver', '0.1.0', plugins_url( 'detect.js', __FILE__ ) );
 	return $extension_module_urls;
 }
 
@@ -108,6 +108,10 @@ function od_debug_add_inp_schema_properties( array $additional_properties ): arr
 		  'interactionTarget' => array(
 			'type'     => 'string',
 			'required' => true,
+		  ),
+		  'xpath'             => array(
+		    'type'     => 'string',
+		    'required' => true,
 		  ),
 		),
 		'additionalProperties' => true,
